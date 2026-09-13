@@ -107,7 +107,7 @@ message(STATUS "DLLLoder: 平台后端 = ${DLLLODER_BACKEND_EFFECTIVE}"
 # 源列表里的 ${DLLLODER_BACKEND_SOURCE} 就是平台表挑中的那一份实现 ——
 # 没有被选中的平台源文件根本不会进入构建图。
 add_library(dll_loader STATIC)
-add_library(APlugin::dll_loader ALIAS dll_loader)
+add_library(plugin::dll_loader ALIAS dll_loader)
 
 target_sources(dll_loader PRIVATE
     "${DLLLODER_BACKEND_SOURCE}"
