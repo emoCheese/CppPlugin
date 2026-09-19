@@ -1,7 +1,6 @@
-// plugin_api.h  —— 宿主与插件共用的头文件，属于稳定 ABI
+// plugin_api.h  —— 宿主与插件共用的头文件，公共头文件，属于稳定 ABI
 #pragma once
 #include <cstdint>
-
 
 // 根据平台定义导出宏
 #if defined(_WIN32) || defined(__CYGWIN__)
@@ -21,10 +20,9 @@
     #endif
 #endif
 
-#define PLUGIN_API_VERSION 1
-#define PLUGIN_ENTRY_SYMBOL "plugin_get_instance"
-#define PLUGIN_META_SYMBOL  "plugin_get_meta_info"
 
+#define STRINGIFY_IMPL(x) #x
+#define STRINGIFY(x) STRINGIFY_IMPL(x)
 
 namespace plugin  {
     
@@ -40,7 +38,7 @@ struct PluginMetaInfo {
 class IPlugin {
 public:
     virtual ~IPlugin() = default;
-    virtual const char* name() const = 0;
+    virtual const char* name() const   = 0;
     virtual bool        initialize()   = 0;     // 初始化资源
     virtual void        shutdown()     = 0;     // 清理资源
 };
@@ -57,6 +55,6 @@ PLUGIN_API const plugin::PluginMetaInfo* plugin_get_meta_info();
 
 // 插件导出：创建/销毁实例
 PLUGIN_API plugin::IPlugin* plugin_create();
-PLUGIN_API void     plugin_destroy(plugin::IPlugin*);
+PLUGIN_API void             plugin_destroy(plugin::IPlugin*);
 
 } // extern "C"

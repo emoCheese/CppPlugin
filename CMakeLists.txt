@@ -13,5 +13,7 @@ add_subdirectory(PluginManager)
 add_subdirectory(plugin_test/plugin_a)
 
 
+add_subdirectory(example)
+
 
 

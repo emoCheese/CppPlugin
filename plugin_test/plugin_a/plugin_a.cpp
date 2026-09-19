@@ -1,12 +1,18 @@
 #include "plugin_a.h"
 #include <cstdio>
 
+
+static const char* g_name = "plugin_a";
+static const char* g_version = "1.0.0";
+static const char* g_desc = "example plugin";
+static const char* g_author = "author";
+
 const static plugin::PluginMetaInfo info {
         .api_version = 1, 
-        .name = "plugin_a",
-        .version = "1", 
-        .description = "",
-        .author = ""
+        .name = g_name,
+        .version = g_version, 
+        .description = g_desc,
+        .author = g_author
     };
 
 const plugin::PluginMetaInfo* plugin_get_meta_info()

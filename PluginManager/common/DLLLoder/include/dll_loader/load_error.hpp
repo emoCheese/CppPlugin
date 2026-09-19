@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <format>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -98,8 +99,7 @@ public:
     std::string text = ec.message();
     const std::string_view detail = last_error_detail();
     if (ec.category() == error_category() && !detail.empty()) {
-        text += ": ";
-        text.append(detail);
+        text = std::format("{}: {}", text, detail);
     }
     return text;
 }

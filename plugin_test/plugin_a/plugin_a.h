@@ -2,6 +2,7 @@
 #include <plugin_api.h>
 #include <string>
 
+
 class Plugin_A : public plugin::IPlugin
 {
 public:

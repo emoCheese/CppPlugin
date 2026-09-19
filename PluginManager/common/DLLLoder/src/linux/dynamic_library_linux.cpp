@@ -138,7 +138,7 @@ DynamicLibrary& DynamicLibrary::operator=(DynamicLibrary&& other) noexcept
 }
 
 // ---- 加载 / 卸载 -----------------------------------------------------------
-
+// file 路径必须是  path/xxx.so
 std::optional<DynamicLibrary> DynamicLibrary::open(const std::filesystem::path& file,
                                                    LoadFlags flags,
                                                    std::error_code& ec) noexcept

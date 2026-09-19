@@ -1,12 +1,11 @@
-
-add_subdirectory(plugin-api)
-# 跨平台动态库加载子项目（设计说明见 DLLLoder/README.md）
-add_subdirectory(DLLLoder)
+add_subdirectory(common)
 
 add_library(plugin_manager STATIC
-    # main.cpp
     plugin_factory.h
     plugin_factory.cpp
+    utils/utils.h
+    utils/utils.cpp
+    metainfo.h
 )
 
 add_library(plugin::manager ALIAS plugin_manager)
@@ -14,9 +13,16 @@ add_library(plugin::manager ALIAS plugin_manager)
 target_include_directories(plugin_manager
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    PRIVATE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/utils>
 )
 
-target_link_libraries(plugin_manager PRIVATE
-    plugin_api
-    dll_loader
+target_link_libraries(plugin_manager 
+    PUBLIC
+        plugin_api
+    PRIVATE
+        dll_loader
+        # 仅内部实现使用（utils/MetainfoParser.*）。约定：
+        # 任何对外头文件都不得引用 nlohmann/json，否则必须改为 PUBLIC。
+        nlohmann_json
 )
