@@ -11,30 +11,27 @@ std::optional<PluginMeta> Parse(const std::filesystem::path& path)
     using json = nlohmann::json;
     std::ifstream ifs(path.generic_string());
     if (!ifs.is_open()) {
-        std::cerr << "无法打开文件: " << path << std::endl;
+        std::cerr << "无法打开文件: " << path << "\n";
         return std::nullopt;
     }
 
     json j;
     try {
-        // 方式二：等价写法
         j = json::parse(ifs);
+        return PluginMeta {
+            .api_version = j.at("api_version"),
+            .name = j.value("name", ""),
+            .version = j.value("version", ""),
+            .description = j.value("description", ""),
+            .author = j.value("author", "")
+        };
     } catch (const json::parse_error& e) {
-        std::cerr << "JSON 解析失败: " << e.what() << std::endl;
+        std::cerr << "JSON 解析失败: " << e.what() << "\n";
         return std::nullopt;
     } catch (const json::exception& e) {
-        std::cerr << "JSON 异常: " << e.what() << std::endl;
+        std::cerr << "JSON 异常: " << e.what() << "\n";
         return std::nullopt;
     }
-
-
-    return PluginMeta {
-        .api_version = j.at("api_version"),
-        .name = j.value("name", ""),
-        .version = j.value("version", ""),
-        .description = j.value("description", ""),
-        .author = j.value("author", "")
-    };
 };
 
 bool metainfo_compare(const PluginMetaInfo* code_info, const PluginMeta* file_info)
@@ -77,8 +74,13 @@ std::unordered_map<fs::path, PluginMeta> find_metainfo(const fs::path &plugin_fo
         // 命中目标文件
         if (entry.is_regular_file(ec) && entry.path().filename() == "metainfo.json") 
         {
-            if (auto val = Parse(entry.path()); val.has_value())
-                results[fs::absolute(entry.path().parent_path())] = val.value();
+            try {
+                auto val = Parse(entry.path());
+                if (val.has_value())
+                    results[fs::absolute(entry.path().parent_path())] = val.value();
+            } catch (...) {
+            
+            }
         }
 
         // 已到允许的最大层级，禁止继续下钻

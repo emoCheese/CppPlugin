@@ -15,20 +15,12 @@ const static plugin::PluginMetaInfo info {
         .author = g_author
     };
 
-const plugin::PluginMetaInfo* plugin_get_meta_info()
-{
-    return &info;
-}
 
 
-Plugin_A::Plugin_A() 
-    : m_name("plugin a")
-{}
+const plugin::PluginMetaInfo* plugin_get_meta_info() { return &info; }
+plugin::IPlugin* plugin_create() { return new Plugin_A(); }
+void plugin_destroy(plugin::IPlugin* p) { delete p; }
 
-const char* Plugin_A::name() const
-{
-    return m_name.c_str();
-}
 
 bool Plugin_A::initialize()
 {
@@ -41,3 +33,13 @@ void Plugin_A::shutdown()
 {
     std::printf("%s shutdown!!!", m_name.c_str());
 }
+
+Plugin_A::Plugin_A() 
+    : m_name("plugin a")
+{}
+
+const char* Plugin_A::name() const
+{
+    return m_name.c_str();
+}
+
