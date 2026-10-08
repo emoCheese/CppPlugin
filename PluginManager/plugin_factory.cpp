@@ -6,6 +6,7 @@
 #include "utils.h"
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <ranges>
 #include <format>
@@ -13,6 +14,13 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
+
+
+// 原代码里顺手要修的两个 bug
+
+// load() 重复加载返回 nullopt → 会导致 loadPlugin 对已加载插件返回 nullptr，且 is_init == true 分支变成死代码。应返回 &it->second（本文已修）。
+
+// loadPlugin 里 load(key, name) 返回后 m_dlls[plugin_folder] 二次查找 → 用返回的 Dll* 直接操作即可，也避免 operator[] 意外默认构造。
 
 
 
@@ -27,34 +35,83 @@ struct Dll  {
     IPlugin*                    plugin = nullptr;
 };
 
+
+struct PluginFactory::impl {
+
+    explicit impl() = default;
+
+    /// 递归扫描插件目录下的 meta info
+    void scanFileFolder(const std::filesystem::path& plugins_folder);
+
+    IPlugin* loadPlugin(std::string_view name);
+    bool unloadPlugin(IPlugin* plugin);
+
+    IPlugin* getPlugin(std::string_view name);  // 获取已经加载过的 plugin
+
+    /// @todo 考虑按依赖逆序销毁
+    void unloadAll() noexcept;
+
+    /// @param plugin_folder 必须为插件目录的绝对路径（相对路径未测试）,
+    //                       该路径下存放 metainfo.json 与 so 文件
+    /// @param name          为 插件 metainfo.json 中注册的插件名，应当与 so 文件名相同
+    std::optional<Dll*> load(const std::filesystem::path& plugin_folder, std::string_view name);
+
+
+    std::filesystem::path m_plugins_path;
+
+    /// 这里的 PluginPath 都必须是指向 so 文件所在文件夹的路径
+    std::unordered_map<PluginPath, PluginMeta> m_metainfos;   // metainfo.json 中获取
+    std::unordered_map<PluginPath, Dll>        m_dlls;
+};
+
+
 namespace fs = std::filesystem;
+
+PluginFactory::PluginFactory()
+    : impl_ptr(std::make_unique<impl>())
+{
+    
+}
+
+PluginFactory::~PluginFactory()
+{
+    impl_ptr->unloadAll(); 
+}
 
 void PluginFactory::scanFileFolder(const fs::path& plugin_folder)
 {
-    auto info = utils::find_metainfo(plugin_folder);
+    impl_ptr->scanFileFolder(plugin_folder);
+}
+
+IPlugin* PluginFactory::loadPlugin(std::string_view name)
+{
+    return impl_ptr->loadPlugin(name);
+}
+
+bool PluginFactory::unloadPlugin(IPlugin* plugin)
+{
+    return impl_ptr->unloadPlugin(plugin);
+}
+
+IPlugin* PluginFactory::getPlugin(std::string_view name)
+{
+    return impl_ptr->getPlugin(name);
+}
+
+
+inline void PluginFactory::impl::scanFileFolder(const std::filesystem::path& plugins_folder) 
+{
+    auto info = utils::find_metainfo(plugins_folder);
     for(const auto& [key, val] : info) 
     {
         if (m_metainfos.find(key) == m_metainfos.end()) {
             m_metainfos.insert({key, val});
         }
+        std::clog << "plugin: " << val.to_string() << "\n";
     }
 }
 
-void PluginFactory::unloadAll() noexcept
-{
-    for (auto& [path, dll] : m_dlls) {
-        if (dll.plugin != nullptr) {
-            try { dll.plugin->shutdown(); } catch (...) {}   // 析构路径不得抛出
-            if (dll.fn_plugin_destory) 
-                dll.fn_plugin_destory(dll.plugin);
-            dll.plugin = nullptr;
-        }
-        dll.dll.unload();
-    }
-    m_dlls.clear();
-}
-
-IPlugin* PluginFactory::loadPlugin(std::string_view name)
+inline IPlugin* PluginFactory::impl::loadPlugin(std::string_view name) 
 {
     /// 这里的 key 就是 fs::path 指向 so 文件目录的绝对路径
     for(auto& [key, value] : m_metainfos) 
@@ -82,10 +139,10 @@ IPlugin* PluginFactory::loadPlugin(std::string_view name)
             }
         }
     }
-    return nullptr;
+    return nullptr;    
 }
 
-bool PluginFactory::unloadPlugin(IPlugin* plugin)
+inline bool PluginFactory::impl::unloadPlugin(IPlugin* plugin) 
 {
     if (plugin == nullptr) return false;
     /// 回收资源
@@ -111,8 +168,7 @@ bool PluginFactory::unloadPlugin(IPlugin* plugin)
     return true;
 }
 
-IPlugin* PluginFactory::getPlugin(std::string_view name)
-{
+inline IPlugin* PluginFactory::impl::getPlugin(std::string_view name) {
     for(const auto& [key, dll] : m_dlls) {
         if (dll.plugin->name() == name) {
             return dll.plugin;
@@ -121,8 +177,20 @@ IPlugin* PluginFactory::getPlugin(std::string_view name)
     return nullptr;
 }
 
-/// @todo 先查找是否存在已经打开的 插件 防止重复加载
-std::optional<Dll*> PluginFactory::load(const fs::path& plugin_folder, std::string_view name)
+inline void PluginFactory::impl::unloadAll() noexcept {
+    for (auto& [path, dll] : m_dlls) {
+        if (dll.plugin != nullptr) {
+            try { dll.plugin->shutdown(); } catch (...) {}   // 析构路径不得抛出
+            if (dll.fn_plugin_destory) 
+                dll.fn_plugin_destory(dll.plugin);
+            dll.plugin = nullptr;
+        }
+        dll.dll.unload();
+    }
+    m_dlls.clear();
+}
+
+inline std::optional<Dll*> PluginFactory::impl::load(const std::filesystem::path& plugin_folder, std::string_view name) 
 {
     auto it = std::find_if(m_dlls.begin(), m_dlls.end(), [&plugin_folder](const auto& kv) {
         return kv.first == plugin_folder;

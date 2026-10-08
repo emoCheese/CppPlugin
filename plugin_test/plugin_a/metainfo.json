@@ -1,7 +1,7 @@
 {
     "api_version": 1,
     "name": "plugin_a",
-    "version": "1.0",
+    "version": "1.0.0",
     "description": "测试插件",
     "author": "test"
 }

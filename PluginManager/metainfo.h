@@ -1,4 +1,5 @@
 #pragma once
+#include <format>
 #include <string>
 #include <cstdint>
 
@@ -9,4 +10,8 @@ struct PluginMeta {
     std::string         version;
     std::string         description;
     std::string         author;
+
+    std::string to_string() const {
+        return std::format("name: {}-{}, author: {}", name, version, author, description);
+    }
 };

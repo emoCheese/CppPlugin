@@ -12,6 +12,8 @@ public:
     bool        initialize()   override;     // 初始化资源
     void        shutdown()     override;     // 清理资源
 
+    void do_something();
+
 private:
     std::string m_name;
 };

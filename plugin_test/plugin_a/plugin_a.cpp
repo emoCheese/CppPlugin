@@ -24,14 +24,18 @@ void plugin_destroy(plugin::IPlugin* p) { delete p; }
 
 bool Plugin_A::initialize()
 {
-    std::printf("%s initialized!!!", m_name.c_str());
+    std::printf("%s initialized!!!\n", m_name.c_str());
     return true;
 }
 
 
 void Plugin_A::shutdown()
 {
-    std::printf("%s shutdown!!!", m_name.c_str());
+    std::printf("%s shutdown!!!\n", m_name.c_str());
+}
+
+void Plugin_A::do_something() {
+    std::printf("do something\n");
 }
 
 Plugin_A::Plugin_A() 

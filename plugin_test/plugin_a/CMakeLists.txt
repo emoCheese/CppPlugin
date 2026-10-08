@@ -1,6 +1,5 @@
 set(PLUGIN_NAME plugin_a)
 
-
 add_library(${PLUGIN_NAME} SHARED
     plugin_a.h plugin_a.cpp
 )
@@ -19,7 +18,15 @@ target_link_libraries(${PLUGIN_NAME}
 target_include_directories(${PLUGIN_NAME}
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-        # $<INSTALL_INTERFACE:include/plugin_a>
+)
+
+
+add_custom_command(
+    TARGET ${PLUGIN_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/metainfo.json"
+            "$<TARGET_FILE_DIR:${PLUGIN_NAME}>/metainfo.json"
+    COMMENT "Copying metainfo.json to output directory"
 )
 
 install(TARGETS ${PLUGIN_NAME}
@@ -40,3 +47,5 @@ install(FILES
     metainfo.json
     DESTINATION plugin/${PLUGIN_NAME}
 )
+
+# 示例
