@@ -17,6 +17,8 @@ int main(int argc, char* argv[])
         std::cout << "plugin is nullptr\n";
         return 1;
     }
+
+    auto* plugin2 = plugin_factory.loadPlugin("plugin_a");
         
     std::cout << "Plugin name: " << plugin->name() << "\n";
 

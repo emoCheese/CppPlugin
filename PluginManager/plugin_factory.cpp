@@ -10,16 +10,15 @@
 #include <optional>
 #include <ranges>
 #include <format>
+#include <shared_mutex>
 #include <stdexcept>
 #include <string_view>
 #include <system_error>
 #include <utility>
-
+#include <mutex>
+#include "chain.hpp"
 
 // 原代码里顺手要修的两个 bug
-
-// load() 重复加载返回 nullopt → 会导致 loadPlugin 对已加载插件返回 nullptr，且 is_init == true 分支变成死代码。应返回 &it->second（本文已修）。
-
 // loadPlugin 里 load(key, name) 返回后 m_dlls[plugin_folder] 二次查找 → 用返回的 Dll* 直接操作即可，也避免 operator[] 意外默认构造。
 
 
@@ -37,16 +36,16 @@ struct Dll  {
 
 
 struct PluginFactory::impl {
-
+public:
     explicit impl() = default;
 
     /// 递归扫描插件目录下的 meta info
-    void scanFileFolder(const std::filesystem::path& plugins_folder);
+    void scanFileFolder_unlocked(const std::filesystem::path& plugins_folder);
 
-    IPlugin* loadPlugin(std::string_view name);
-    bool unloadPlugin(IPlugin* plugin);
+    IPlugin* loadPlugin_unlocked(std::string_view name);
+    bool unloadPlugin_unlocked(IPlugin* plugin);
 
-    IPlugin* getPlugin(std::string_view name);  // 获取已经加载过的 plugin
+    IPlugin* getPlugin_unlocked(std::string_view name);  // 获取已经加载过的 plugin
 
     /// @todo 考虑按依赖逆序销毁
     void unloadAll() noexcept;
@@ -56,6 +55,8 @@ struct PluginFactory::impl {
     /// @param name          为 插件 metainfo.json 中注册的插件名，应当与 so 文件名相同
     std::optional<Dll*> load(const std::filesystem::path& plugin_folder, std::string_view name);
 
+public:
+    mutable std::shared_mutex m_mutex;   // 锁切面的“点”
 
     std::filesystem::path m_plugins_path;
 
@@ -63,6 +64,34 @@ struct PluginFactory::impl {
     std::unordered_map<PluginPath, PluginMeta> m_metainfos;   // metainfo.json 中获取
     std::unordered_map<PluginPath, Dll>        m_dlls;
 };
+
+
+template <typename Mutex, typename LockT>
+class LockAspect {
+    Mutex& mtx_;
+public:
+    explicit LockAspect(Mutex& mtx) : mtx_(mtx) {}
+
+    template <typename F>
+    auto operator()(F&& f) const {
+        return [&mtx = mtx_, f = std::forward<F>(f)](auto&&... args)
+            -> decltype(auto) 
+        {
+            LockT lk(mtx);                        // RAII = 前置/后置通知
+            return std::invoke(f, std::forward<decltype(args)>(args)...);
+        };
+    }
+};
+
+template <typename Mutex>
+auto lock_aspect(Mutex& mtx) {
+    return LockAspect<Mutex, std::unique_lock<Mutex>>(mtx);
+}
+template <typename Mutex>
+auto shared_lock_aspect(Mutex& mtx) {
+    return LockAspect<Mutex, std::shared_lock<Mutex>>(mtx);
+}
+
 
 
 namespace fs = std::filesystem;
@@ -79,27 +108,43 @@ PluginFactory::~PluginFactory()
 }
 
 void PluginFactory::scanFileFolder(const fs::path& plugin_folder)
-{
-    impl_ptr->scanFileFolder(plugin_folder);
+{   
+    aspect::chain(
+        lock_aspect(impl_ptr->m_mutex)
+    )([this, &plugin_folder](){ 
+        impl_ptr->scanFileFolder_unlocked(plugin_folder); 
+    })();
 }
 
 IPlugin* PluginFactory::loadPlugin(std::string_view name)
 {
-    return impl_ptr->loadPlugin(name);
+    return aspect::chain(
+        lock_aspect(impl_ptr->m_mutex)
+    )([&]() -> IPlugin* {
+        return impl_ptr->loadPlugin_unlocked(name);
+    })();
 }
 
 bool PluginFactory::unloadPlugin(IPlugin* plugin)
 {
-    return impl_ptr->unloadPlugin(plugin);
+    return aspect::chain(
+        lock_aspect(impl_ptr->m_mutex)
+    )([&]() {
+        return impl_ptr->unloadPlugin_unlocked(plugin);
+    })();
 }
 
 IPlugin* PluginFactory::getPlugin(std::string_view name)
 {
-    return impl_ptr->getPlugin(name);
+    return  aspect::chain(
+        shared_lock_aspect(impl_ptr->m_mutex)
+    )([&]() -> IPlugin* {
+        return impl_ptr->getPlugin_unlocked(name);
+    })();
 }
 
 
-inline void PluginFactory::impl::scanFileFolder(const std::filesystem::path& plugins_folder) 
+inline void PluginFactory::impl::scanFileFolder_unlocked(const std::filesystem::path& plugins_folder) 
 {
     auto info = utils::find_metainfo(plugins_folder);
     for(const auto& [key, val] : info) 
@@ -111,38 +156,45 @@ inline void PluginFactory::impl::scanFileFolder(const std::filesystem::path& plu
     }
 }
 
-inline IPlugin* PluginFactory::impl::loadPlugin(std::string_view name) 
+inline IPlugin* PluginFactory::impl::loadPlugin_unlocked(std::string_view name) 
 {
     /// 这里的 key 就是 fs::path 指向 so 文件目录的绝对路径
-    for(auto& [key, value] : m_metainfos) 
+    for(auto& [key, meta] : m_metainfos) 
     {
-        if (value.name.compare(name) == 0) {
-            try {
-                auto dll = load(key, name);
-                if (!dll.has_value()) 
-                    return nullptr;
-                
-                auto plugin = dll.value()->plugin;
-                if (dll.value()->is_init == true) {
-                    std::clog << std::format("插件 {} 已经初始化\n", dll.value()->plugin->name());
-                    return dll.value()->plugin;
-                }
-                if (!plugin->initialize()) {
-                    unloadPlugin(plugin);              // 初始化失败必须按 shutdown→destroy→unload 回收
-                    return nullptr;
-                }
-                dll.value()->is_init = true;
-                return plugin;
-            } catch (std::runtime_error& ec) {
-                std::cerr << ec.what() << "\n";
+        if (meta.name.compare(name) != 0) continue;
+        
+        try {
+            auto dll_opt = load(key, name);
+            if (!dll_opt.has_value()) 
                 return nullptr;
+            auto dll = *dll_opt;
+            auto plugin = dll_opt.value()->plugin;
+            if (!dll->is_init) 
+            {
+                if (!plugin->initialize()) {
+                    unloadPlugin_unlocked(plugin);              // 初始化失败必须按 shutdown→destroy→unload 回收
+                    std::cerr << std::format("插件 {} 初始化失败\n", dll->plugin->name());
+                    return nullptr;
+                }
+                std::clog << std::format("插件 {} 已经初始化\n", dll->plugin->name());
+                dll->is_init = true;
+                
+            } 
+            else {
+                std::clog << std::format("插件 {} 已经加载过了\n", dll->plugin->name());
             }
+
+            return plugin;
+        } catch (std::runtime_error& ec) {
+            std::cerr << ec.what() << "\n";
+            return nullptr;
         }
+        
     }
     return nullptr;    
 }
 
-inline bool PluginFactory::impl::unloadPlugin(IPlugin* plugin) 
+inline bool PluginFactory::impl::unloadPlugin_unlocked(IPlugin* plugin) 
 {
     if (plugin == nullptr) return false;
     /// 回收资源
@@ -168,7 +220,7 @@ inline bool PluginFactory::impl::unloadPlugin(IPlugin* plugin)
     return true;
 }
 
-inline IPlugin* PluginFactory::impl::getPlugin(std::string_view name) {
+inline IPlugin* PluginFactory::impl::getPlugin_unlocked(std::string_view name) {
     for(const auto& [key, dll] : m_dlls) {
         if (dll.plugin->name() == name) {
             return dll.plugin;
@@ -197,7 +249,7 @@ inline std::optional<Dll*> PluginFactory::impl::load(const std::filesystem::path
     });
     if (it != m_dlls.end()) {
         // 插件被加载过
-        return std::nullopt;
+        return &it->second;
     }
 
 

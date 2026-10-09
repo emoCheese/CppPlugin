@@ -21,6 +21,7 @@ target_link_libraries(plugin_manager
     PUBLIC
         plugin_api
     PRIVATE
+        plugin::aspect
         dll_loader
         # 仅内部实现使用（utils/MetainfoParser.*）。约定：
         # 任何对外头文件都不得引用 nlohmann/json，否则必须改为 PUBLIC。
